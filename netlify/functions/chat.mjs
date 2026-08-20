@@ -13,15 +13,15 @@ export default async (req) => {
             );
         }
 
-        // Check API key
-        const apiKey = process.env.XAI_API_KEY;
+        // Check API key (Changed to GROQ_API_KEY)
+        const apiKey = process.env.GROQ_API_KEY;
 
         if (!apiKey) {
-            console.error("XAI_API_KEY is missing");
+            console.error("GROQ_API_KEY is missing");
 
             return new Response(
                 JSON.stringify({
-                    error: "XAI_API_KEY is not configured in Netlify."
+                    error: "GROQ_API_KEY is not configured in Netlify."
                 }),
                 {
                     status: 500,
@@ -50,17 +50,17 @@ export default async (req) => {
             );
         }
 
-        // Convert messages to xAI Responses API format
-        const input = messages
+        // Convert messages to Groq API format
+        const formattedMessages = messages
             .filter(message => message.role === "user" || message.role === "assistant")
             .map(message => ({
                 role: message.role,
                 content: message.content
             }));
 
-        // Send request to Grok
+        // Send request to Groq (Updated URL and body format)
         const response = await fetch(
-            "https://api.x.ai/v1/responses",
+            "https://api.groq.com/openai/v1/chat/completions",
             {
                 method: "POST",
                 headers: {
@@ -68,24 +68,24 @@ export default async (req) => {
                     "Authorization": `Bearer ${apiKey}`
                 },
                 body: JSON.stringify({
-                    model: "grok-4.6",
-                    input: input
+                    model: "openai/gpt-oss-120b",
+                    messages: formattedMessages
                 })
             }
         );
 
         const data = await response.json();
 
-        // Handle Grok API errors
+        // Handle Groq API errors
         if (!response.ok) {
-            console.error("xAI API error:", data);
+            console.error("Groq API error:", data);
 
             return new Response(
                 JSON.stringify({
                     error:
                         data?.error?.message ||
                         data?.message ||
-                        "Grok API request failed."
+                        "Groq API request failed."
                 }),
                 {
                     status: response.status,
@@ -96,21 +96,15 @@ export default async (req) => {
             );
         }
 
-        // Get Grok's text response
-        const answer =
-            data.output_text ||
-            data.output
-                ?.filter(item => item.type === "message")
-                ?.flatMap(item => item.content || [])
-                ?.find(content => content.type === "output_text")
-                ?.text;
+        // Get Groq's text response (Updated to OpenAI format)
+        const answer = data.choices?.[0]?.message?.content;
 
         if (!answer) {
-            console.error("Unexpected xAI response:", data);
+            console.error("Unexpected Groq response:", data);
 
             return new Response(
                 JSON.stringify({
-                    error: "Grok returned an empty response."
+                    error: "Groq returned an empty response."
                 }),
                 {
                     status: 502,
@@ -139,7 +133,7 @@ export default async (req) => {
 
         return new Response(
             JSON.stringify({
-                error: "Something went wrong while contacting Grok."
+                error: "Something went wrong while contacting Groq."
             }),
             {
                 status: 500,
