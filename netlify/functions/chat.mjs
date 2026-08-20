@@ -68,7 +68,7 @@ export default async (req) => {
                     "Authorization": `Bearer ${apiKey}`
                 },
                 body: JSON.stringify({
-                    model: "grok-4.5",
+                    model: "grok-4.6",
                     input: input
                 })
             }
