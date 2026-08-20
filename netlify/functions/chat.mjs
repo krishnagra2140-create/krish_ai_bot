@@ -1,43 +1,91 @@
 export default async (req) => {
     try {
-        const { messages } = await req.json();
-
-        // Convert our chat messages into Gemini format
-        const contents = messages
-            .filter(message => message.role !== "system")
-            .map(message => ({
-                role: message.role === "assistant" ? "model" : "user",
-                parts: [
-                    {
-                        text: message.content
+        // Only allow POST requests
+        if (req.method !== "POST") {
+            return new Response(
+                JSON.stringify({ error: "Method not allowed" }),
+                {
+                    status: 405,
+                    headers: {
+                        "Content-Type": "application/json"
                     }
-                ]
+                }
+            );
+        }
+
+        // Check API key
+        const apiKey = process.env.XAI_API_KEY;
+
+        if (!apiKey) {
+            console.error("XAI_API_KEY is missing");
+
+            return new Response(
+                JSON.stringify({
+                    error: "XAI_API_KEY is not configured in Netlify."
+                }),
+                {
+                    status: 500,
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+        }
+
+        // Read request body
+        const body = await req.json();
+        const messages = body.messages;
+
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return new Response(
+                JSON.stringify({
+                    error: "No messages were provided."
+                }),
+                {
+                    status: 400,
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+        }
+
+        // Convert messages to xAI Responses API format
+        const input = messages
+            .filter(message => message.role === "user" || message.role === "assistant")
+            .map(message => ({
+                role: message.role,
+                content: message.content
             }));
 
-        // FIX 1: Updated the URL to the real model (gemini-1.5-flash)
+        // Send request to Grok
         const response = await fetch(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+            "https://api.x.ai/v1/responses",
             {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    // FIX 2: Make sure your Netlify environment variable is named exactly this!
-                    "x-goog-api-key": process.env.GEMINI_API_KEY 
+                    "Authorization": `Bearer ${apiKey}`
                 },
                 body: JSON.stringify({
-                    contents: contents
+                    model: "grok-4.5",
+                    input: input
                 })
             }
         );
 
         const data = await response.json();
 
+        // Handle Grok API errors
         if (!response.ok) {
-            console.error(data);
+            console.error("xAI API error:", data);
 
             return new Response(
                 JSON.stringify({
-                    error: data.error?.message || "Gemini API error"
+                    error:
+                        data?.error?.message ||
+                        data?.message ||
+                        "Grok API request failed."
                 }),
                 {
                     status: response.status,
@@ -48,14 +96,35 @@ export default async (req) => {
             );
         }
 
+        // Get Grok's text response
         const answer =
-            data.candidates?.[0]?.content?.parts?.[0]?.text ||
-            "Sorry, I couldn't generate a response.";
+            data.output_text ||
+            data.output
+                ?.filter(item => item.type === "message")
+                ?.flatMap(item => item.content || [])
+                ?.find(content => content.type === "output_text")
+                ?.text;
 
+        if (!answer) {
+            console.error("Unexpected xAI response:", data);
+
+            return new Response(
+                JSON.stringify({
+                    error: "Grok returned an empty response."
+                }),
+                {
+                    status: 502,
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+        }
+
+        // Return response to your frontend
         return new Response(
-            // FIX 3: Changed this from 'answer' to 'reply' so your script.js can read it
             JSON.stringify({
-                reply: answer 
+                reply: answer
             }),
             {
                 status: 200,
@@ -66,11 +135,11 @@ export default async (req) => {
         );
 
     } catch (error) {
-        console.error(error);
+        console.error("Chat function error:", error);
 
         return new Response(
             JSON.stringify({
-                error: "Something went wrong."
+                error: "Something went wrong while contacting Grok."
             }),
             {
                 status: 500,
@@ -80,4 +149,4 @@ export default async (req) => {
             }
         );
     }
-};s
+};
